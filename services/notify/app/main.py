@@ -13,17 +13,16 @@ import json
 dispatcher = Dispatcher()
 BOT = Bot(token=settings.BOT_TOKEN)
 
-
 @dispatcher.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer("Выберите необходимую валюту", reply_markup=get_kb())
 
-@dispatcher.callback_query()
+@dispatcher.callback_query(lambda c: isinstance(c.data, str) and len(c.data) < 10)
 async def process_currency_button(callback_query: types.CallbackQuery):
     currency_char_code = callback_query.data
     telegram_id = callback_query.from_user.id
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
         async with session.post(
             "http://web:8000/currency-info",
             json={
@@ -39,8 +38,6 @@ async def process_currency_button(callback_query: types.CallbackQuery):
             else:
                 await callback_query.answer("Ошибка при отправке запроса.")
 
-    await callback_query.answer()
-
 
 
 async def consume() -> None:
@@ -52,9 +49,11 @@ async def consume() -> None:
     try:
         async for msg in consumer:
             serialized = json.loads(msg.value)
-            await BOT.send_message(
-                chat_id=serialized.get("telegram_id"),
-                text=serialized.get("currency_value") or "Валюта не найдена",
+            asyncio.create_task(
+                BOT.send_message(
+                    chat_id=serialized.get("telegram_id"),
+                    text=serialized.get("currency_value") or "Валюта не найдена",
+                )
             )
     finally:
         await consumer.stop()
